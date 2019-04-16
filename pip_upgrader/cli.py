@@ -2,7 +2,7 @@
 pip-upgrade
 
 Usage:
-  pip-upgrade [<requirements_file>] ... [--prerelease] [-p=<package>...] [--dry-run] [--skip-virtualenv-check] [--skip-package-installation] [--use-default-index]
+  pip-upgrade [<requirements_file>] ... [--prerelease] [-p=<package>...] [--dry-run] [--skip-virtualenv-check] [--skip-package-installation] [--use-default-index] [--non-interactive]
 
 Arguments:
     requirements_file             The requirement FILE, or WILDCARD PATH to multiple files.
@@ -12,6 +12,7 @@ Arguments:
     --skip-package-installation   Only upgrade the version in requirements files, don't install the new package.
     --skip-virtualenv-check       Disable virtualenv check. Allows installing the new packages outside the virtualenv.
     --use-default-index           Skip searching for custom index-url in pip configuration file(s).
+    --non-interactive             Just report new versions as JSON. Exit code will be 255 on any update or 0 if everything is up to date.
 
 Examples:
   pip-upgrade             # auto discovers requirements file
@@ -30,6 +31,7 @@ Help:
 from __future__ import print_function, unicode_literals
 from colorclass import Windows, Color
 from docopt import docopt
+import json
 
 from pip_upgrader import __version__ as VERSION
 from pip_upgrader.packages_detector import PackagesDetector
@@ -55,13 +57,14 @@ def main():
 
         # 1. detect requirements files
         filenames = RequirementsDetector(options.get('<requirements_file>')).get_filenames()
-        if filenames:
-            print(Color('{{autoyellow}}Found valid requirements file(s):{{/autoyellow}} '
-                        '{{autocyan}}\n{}{{/autocyan}}'.format('\n'.join(filenames))))
-        else:  # pragma: nocover
-            print(Color('{autoyellow}No requirements files found in current directory. CD into your project '
-                        'or manually specify requirements files as arguments.{/autoyellow}'))
-            return
+        if not options['--non-interactive']:
+            if filenames:
+                print(Color('{{autoyellow}}Found valid requirements file(s):{{/autoyellow}} '
+                            '{{autocyan}}\n{}{{/autocyan}}'.format('\n'.join(filenames))))
+            else:  # pragma: nocover
+                print(Color('{autoyellow}No requirements files found in current directory. CD into your project '
+                            'or manually specify requirements files as arguments.{/autoyellow}'))
+                return
         # 2. detect all packages inside requirements
         packages = PackagesDetector(filenames).get_packages()
 
@@ -69,16 +72,40 @@ def main():
         packages_status_map = PackagesStatusDetector(
             packages, options.get('--use-default-index')).detect_available_upgrades(options)
 
-        # 4. [optionally], show interactive screen when user can choose which packages to upgrade
-        selected_packages = PackageInteractiveSelector(packages_status_map, options).get_packages()
+        if options['--non-interactive']:
+            to_update_list = []
+            for p in packages_status_map:
+                cv = packages_status_map[p]['current_version']
+                lv = packages_status_map[p]['latest_version']
+                if cv < lv:
+                    to_update_package = {
+                        'name': p,
+                        'current_version': str(cv),
+                        'latest_version': str(lv),
+                        'upload_time': str(packages_status_map[p]['upload_time'])
+                    }
+                    to_update_list.append(to_update_package)
+            print(json.dumps(to_update_list))
+            if len(to_update_list) > 0:
+                exit(255)
+            else:
+                exit(0)
 
-        # 5. having the list of packages, do the actual upgrade and replace the version inside all filenames
-        upgraded_packages = PackagesUpgrader(selected_packages, filenames, options).do_upgrade()
+        else:
+            # 3. query pypi API, see which package has a newer version vs the one in requirements (or current env)
+            packages_status_map = PackagesStatusDetector(
+                packages, options.get('--use-default-index')).detect_available_upgrades(options)
 
-        print(Color('{{autogreen}}Successfully upgraded (and updated requirements) for the following packages: '
-                    '{}{{/autogreen}}'.format(','.join([package['name'] for package in upgraded_packages]))))
-        if options['--dry-run']:
-            print(Color('{automagenta}Actually, no, because this was a simulation using --dry-run{/automagenta}'))
+            # 4. [optionally], show interactive screen when user can choose which packages to upgrade
+            selected_packages = PackageInteractiveSelector(packages_status_map, options).get_packages()
+
+            # 5. having the list of packages, do the actual upgrade and replace the version inside all filenames
+            upgraded_packages = PackagesUpgrader(selected_packages, filenames, options).do_upgrade()
+
+            print(Color('{{autogreen}}Successfully upgraded (and updated requirements) for the following packages: '
+                        '{}{{/autogreen}}'.format(','.join([package['name'] for package in upgraded_packages]))))
+            if options['--dry-run']:
+                print(Color('{automagenta}Actually, no, because this was a simulation using --dry-run{/automagenta}'))
 
     except KeyboardInterrupt:  # pragma: nocover
         print(Color('\n{autored}Upgrade interrupted.{/autored}'))

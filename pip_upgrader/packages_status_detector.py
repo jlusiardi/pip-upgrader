@@ -132,16 +132,16 @@ class PackagesStatusDetector(object):
                         print(package, reason)
                         continue
 
-                    print('{}/{}: {} ... '.format(i + 1, len(self.packages), package_name), end='')
+                    # print('{}/{}: {} ... '.format(i + 1, len(self.packages), package_name), end='')
                     sys.stdout.flush()
 
                     # compare versions
-                    if current_version < package_status['latest_version']:
-                        print('upgrade available: {} ==> {} (uploaded on {})'.format(current_version,
-                                                                                     package_status['latest_version'],
-                                                                                     package_status['upload_time']))
-                    else:
-                        print('up to date: {}'.format(current_version))
+                    # if current_version < package_status['latest_version']:
+                        # print('upgrade available: {} ==> {} (uploaded on {})'.format(current_version,
+                        #                                                              package_status['latest_version'],
+                        #                                                              package_status['upload_time']))
+                    # else:
+                        # print('up to date: {}'.format(current_version))
                     sys.stdout.flush()
 
                     self.packages_status_map[package_name] = package_status
